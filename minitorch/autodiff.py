@@ -68,7 +68,7 @@ class Variable:
 
     def accumulate_derivative(self, val):
         """
-        Add `val` to the the derivative accumulated on this variable.
+        Add `val` to the derivative accumulated on this variable.
         Should only be called during autodifferentiation on leaf variables.
 
         Args:
@@ -190,8 +190,7 @@ class History:
         Returns:
             list of numbers : a derivative with respect to `inputs`
         """
-        # TODO: Implement for Task 1.4.
-        raise NotImplementedError('Need to implement for Task 1.4')
+        return self.last_fn.chain_rule(self.ctx, self.inputs, d_output)
 
 
 class FunctionBase:
@@ -273,8 +272,11 @@ class FunctionBase:
         """
         # Tip: Note when implementing this function that
         # cls.backward may return either a value or a tuple.
-        # TODO: Implement for Task 1.3.
-        raise NotImplementedError('Need to implement for Task 1.3')
+        return [
+            (inputs[i], back)
+            for (i, back) in enumerate(wrap_tuple(cls.backward(ctx, d_output)))
+            if not is_constant(inputs[i])
+        ]
 
 
 # Algorithms for backpropagation
@@ -287,6 +289,8 @@ def is_constant(val):
 def topological_sort(variable):
     """
     Computes the topological order of the computation graph.
+    Uses the depth-first search algorithm described here: 
+    https://en.wikipedia.org/wiki/Topological_sorting#Algorithms
 
     Args:
         variable (:class:`Variable`): The right-most variable
@@ -295,8 +299,28 @@ def topological_sort(variable):
         list of Variables : Non-constant Variables in topological order
                             starting from the right.
     """
-    # TODO: Implement for Task 1.4.
-    raise NotImplementedError('Need to implement for Task 1.4')
+    lo_vars = []
+    marks = {}  # 0 is temporary, 1 is permanent
+
+    def visit(var):
+        if is_constant(var):
+            return
+        uid = var.unique_id
+        # if n has a permanent mark
+        if marks.get(uid, -1) == 1:
+            return
+        # if n has a temporary mark
+        if marks.get(uid, -1) == 0:
+            raise Exception("Not a DAG.")
+        marks[uid] = 0
+        if var.history and var.history.inputs:
+            for in_var in var.history.inputs:
+                visit(in_var)
+        marks[uid] = 1
+        lo_vars.append(var)
+
+    visit(variable)
+    return lo_vars
 
 
 def backpropagate(variable, deriv):
@@ -312,5 +336,16 @@ def backpropagate(variable, deriv):
 
     No return. Should write to its results to the derivative values of each leaf through `accumulate_derivative`.
     """
-    # TODO: Implement for Task 1.4.
-    raise NotImplementedError('Need to implement for Task 1.4')
+    var_queue = topological_sort(variable)
+    print(var_queue)
+    var_dict = {variable.unique_id: deriv}
+    while var_queue:
+        var = var_queue.pop()
+        deriv = var_dict.get(var.unique_id)
+        if var.is_leaf():
+            var.accumulate_derivative(deriv)
+        else:
+            derivs = var.history.backprop_step(deriv)
+            for (v, d) in derivs:
+                curr_val = var_dict.get(v.unique_id, 0)
+                var_dict[v.unique_id] = curr_val + d
